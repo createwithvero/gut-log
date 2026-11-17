@@ -1,11 +1,22 @@
 // Gut Log. One capture point, no required fields, the app does the sorting.
 
-const SYMPTOMS = [
+const BASE_SYMPTOMS = [
   { k: "bloating", name: "Bloating", lo: "none", hi: "a lot" },
+  { k: "reflux", name: "Acid reflux", lo: "none", hi: "bad" },
+  { k: "heartburn", name: "Heartburn", lo: "none", hi: "bad" },
+  { k: "cramps", name: "Stomach cramps", lo: "none", hi: "bad" },
+  { k: "constipation", name: "Constipation", lo: "none", hi: "bad" },
+  { k: "throat", name: "Throat / swallowing", lo: "fine", hi: "hard" },
   { k: "energy", name: "Energy", lo: "drained", hi: "great", goodHigh: true },
   { k: "fog", name: "Brain fog", lo: "clear", hi: "foggy" },
-  { k: "throat", name: "Throat / swallowing", lo: "fine", hi: "hard" },
 ];
+// Symptoms you add yourself are saved on the phone and work like the rest.
+let customSymptoms = [];
+let SYMPTOMS = BASE_SYMPTOMS;
+function setCustom(list) {
+  customSymptoms = Array.isArray(list) ? list.filter(c => c && c.k && c.name) : [];
+  SYMPTOMS = [...BASE_SYMPTOMS, ...customSymptoms.map(c => ({ k: c.k, name: c.name, lo: "none", hi: "bad", custom: true }))];
+}
 const FLAGS = [
   { k: "coffee", name: "Coffee", phrase: "coffee" },
   { k: "dairy", name: "Dairy", phrase: "dairy" },
@@ -57,8 +68,22 @@ function parseFoods(note) {
   return { foods: [...new Set(foods)], leftover };
 }
 
-const isLog = e => e.kind === "log";
-const hasFood = e => isLog(e) && (e.foods?.length || e.photo || (e.note || "").trim());
+// "log" is a meal, "symptoms" is a symptoms-only entry, "checkin" answers a meal.
+const isLog = e => e.kind === "log" || e.kind === "symptoms";
+const hasFood = e => e.kind === "log" && (e.foods?.length || e.photo || (e.note || "").trim());
+const kindLabel = e => e.kind === "checkin" ? "check-in" : e.kind === "symptoms" ? "symptoms" : "meal";
+
+const hhmm = d => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+// The time you picked, today. If that's later than now, you meant last night.
+function whenTs(draft) {
+  if (!draft.time || draft.time === draft.time0) return Date.now();
+  const [h, m] = draft.time.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return Date.now();
+  const now = new Date(), d = new Date(now);
+  d.setHours(h, m, 0, 0);
+  if (d - now > 60e3) d.setDate(d.getDate() - 1);
+  return d.getTime();
+}
 
 function usualFoods() {
   const m = new Map();
@@ -108,7 +133,10 @@ function renderHome() {
   return `${header(`<h1>Gut Log<span>.</span></h1>`)}
     <div class="home">
       ${ci}
-      <div class="home-center"><button class="log-btn" data-act="go" data-view="log">Log</button></div>
+      <div class="home-center">
+        <button class="log-btn" data-act="go" data-view="log">Log</button>
+        <button class="sym-btn" data-act="go" data-view="log" data-mode="symptoms">Just symptoms</button>
+      </div>
       <nav class="home-links">
         <button data-act="go" data-view="week">Your week</button>
         <button data-act="go" data-view="more">Export &amp; backup</button>
@@ -118,11 +146,32 @@ function renderHome() {
 
 function renderLog() {
   const d = state.draft;
+  const top = `<header class="app">${backBtn}<label class="when"><span>${d.mode === "symptoms" ? "Felt at" : "Ate at"}</span><input type="time" id="when" value="${d.time}"></label></header>`;
+  const feel = `<div class="field">
+      <span class="label">How you feel</span>
+      ${SYMPTOMS.map(s => scaleHTML("log", s, d.sym[s.k])).join("")}
+      <button class="add-sym" data-act="add-sym">+ Add a symptom</button>
+    </div>`;
+  const extra = `<div class="field">
+      <span class="label">Anything else</span>
+      <div class="chips">${FLAGS.map(f => `<button class="chip flag ${d.flags.has(f.k) ? "on" : ""}" data-act="flag" data-k="${f.k}">${f.name}</button>`).join("")}</div>
+    </div>`;
+  if (d.mode === "symptoms") {
+    return `${top}
+      <h2 class="page-title">Symptoms</h2>
+      ${feel}
+      <div class="field">
+        <span class="label">Note</span>
+        <textarea id="note" rows="2" placeholder="optional" enterkeyhint="done">${esc(d.note)}</textarea>
+      </div>
+      ${extra}
+      <div class="save-bar"><button class="primary" data-act="save">Save</button></div>`;
+  }
   const chips = usualFoods();
   const photo = d.photoURL
     ? `<div class="photo-preview"><img src="${d.photoURL}" alt="Meal photo"><button data-act="photo-clear">Remove</button></div>`
     : `<button class="photo-btn" data-act="photo"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.6l1.5-2h4.8l1.5 2h1.6A2.5 2.5 0 0 1 20 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5z"/><circle cx="12" cy="12.8" r="3.6"/></svg>Add a photo</button>`;
-  return `<header class="app">${backBtn}<div class="date">${fmtTime(Date.now())}</div></header>
+  return `${top}
     <div class="field">${photo}<input type="file" id="photo-input" accept="image/*" hidden></div>
     <div class="field">
       <span class="label">Usual foods</span>
@@ -134,14 +183,8 @@ function renderLog() {
       <span class="label">Food or note</span>
       <textarea id="note" rows="2" placeholder="rice, chicken, spinach" enterkeyhint="done">${esc(d.note)}</textarea>
     </div>
-    <div class="field">
-      <span class="label">How you feel</span>
-      ${SYMPTOMS.map(s => scaleHTML("log", s, d.sym[s.k])).join("")}
-    </div>
-    <div class="field">
-      <span class="label">Anything else</span>
-      <div class="chips">${FLAGS.map(f => `<button class="chip flag ${d.flags.has(f.k) ? "on" : ""}" data-act="flag" data-k="${f.k}">${f.name}</button>`).join("")}</div>
-    </div>
+    ${feel}
+    ${extra}
     <div class="save-bar"><button class="primary" data-act="save">Save</button></div>`;
 }
 
@@ -211,7 +254,7 @@ function entryText(e) {
   const flags = (e.flags || []).map(k => FLAGS.find(f => f.k === k)?.name || k).join(", ");
   let foods = (e.foods || []).map(cap).join(", ");
   const note = (e.note || "").trim();
-  const showNote = note && parseFoods(note).leftover;
+  const showNote = note && (e.kind !== "log" || parseFoods(note).leftover);
   return { sym, flags, foods, note: showNote ? note : "" };
 }
 
@@ -231,8 +274,8 @@ function renderWeek() {
     const t = entryText(e);
     let img = "";
     if (e.photo instanceof Blob) { const u = URL.createObjectURL(e.photo); state.urls.push(u); img = `<img src="${u}" alt="">`; }
-    tl += `<div class="entry ${isLog(e) ? "" : "ci"}">${img}<div class="body">
-      <div class="time"><span>${fmtTime(e.ts)}${isLog(e) ? "" : " · check-in"}</span><button data-act="del" data-id="${e.id}">delete</button></div>
+    tl += `<div class="entry ${e.kind === "checkin" ? "ci" : e.kind === "symptoms" ? "sx" : ""}">${img}<div class="body">
+      <div class="time"><span>${fmtTime(e.ts)}${e.kind === "log" ? "" : " · " + kindLabel(e)}</span><button data-act="del" data-id="${e.id}">delete</button></div>
       ${t.foods ? `<div class="note">${esc(t.foods)}</div>` : ""}
       ${t.note ? `<div class="note">${esc(t.note)}</div>` : ""}
       ${t.sym ? `<div class="meta">${esc(t.sym)}</div>` : ""}
@@ -258,6 +301,9 @@ function renderMore() {
     : perm === "denied"
       ? `<p class="hint">Notifications are turned off for Gut Log in your iPhone Settings.</p>`
       : notifOK ? `<button class="secondary" data-act="notif">Turn on check-in reminders</button>` : "";
+  const mine = customSymptoms.length ? `<h3 class="section-head">Symptoms you added</h3>
+    <div class="mine">${customSymptoms.map(c => `<div class="mine-row"><span>${esc(c.name)}</span><button data-act="del-sym" data-k="${esc(c.k)}">remove</button></div>`).join("")}</div>
+    <p class="hint">Removing one hides it from now on. Past logs keep what you rated.</p>` : "";
   return `${header(backBtn)}
     <h2 class="page-title">Export &amp; backup</h2>
     <span class="label">For your doctor</span>
@@ -278,6 +324,7 @@ function renderMore() {
     <h3 class="section-head">Check-in reminders</h3>
     <p class="hint">About 2 hours after you log food, a "How do you feel?" check-in waits at the top of the home screen.${notifOK ? " A notification can also pop up, but only while Gut Log is still open in the background." : ""}</p>
     ${remind}
+    ${mine}
 
     <p class="privacy">Everything stays on this phone. No account, no server, no tracking. ${state.entries.length} entries saved.</p>`;
 }
@@ -287,8 +334,11 @@ function render() {
   $app.innerHTML = views[state.view]();
 }
 
-function go(view) {
-  if (view === "log") state.draft = { photo: null, photoURL: null, note: "", foods: new Set(), sym: {}, flags: new Set() };
+function go(view, mode) {
+  if (view === "log") {
+    const t = hhmm(new Date());
+    state.draft = { mode: mode === "symptoms" ? "symptoms" : "meal", time: t, time0: t, photo: null, photoURL: null, note: "", foods: new Set(), sym: {}, flags: new Set() };
+  }
   else if (state.draft?.photoURL) { URL.revokeObjectURL(state.draft.photoURL); state.draft = null; }
   state.view = view;
   render();
@@ -317,18 +367,31 @@ function shrinkPhoto(file) {
 async function saveLog() {
   const d = state.draft;
   const note = document.getElementById("note").value.trim();
-  const parsed = parseFoods(note).foods;
-  const entry = {
-    id: uid(), ts: Date.now(), kind: "log",
-    note, foods: [...new Set([...d.foods, ...parsed])],
-    photo: d.photo || null, sym: { ...d.sym }, flags: [...d.flags],
-  };
+  const ts = whenTs(d);
+  const entry = d.mode === "symptoms"
+    ? { id: uid(), ts, kind: "symptoms", note, sym: { ...d.sym }, flags: [...d.flags] }
+    : {
+        id: uid(), ts, kind: "log",
+        note, foods: [...new Set([...d.foods, ...parseFoods(note).foods])],
+        photo: d.photo || null, sym: { ...d.sym }, flags: [...d.flags],
+      };
   await DB.put(entry);
   state.entries.push(entry);
+  state.entries.sort((a, b) => a.ts - b.ts);
   if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
   scheduleReminders();
   go("home");
-  toast("Saved");
+  toast(Date.now() - ts > 5 * 60e3 ? `Saved for ${fmtTime(ts)}` : "Saved");
+}
+
+async function addSymptom() {
+  const name = (prompt("New symptom (you'll rate it 0 to 5)") || "").trim().slice(0, 40);
+  if (!name) return;
+  if (SYMPTOMS.some(s => s.name.toLowerCase() === name.toLowerCase())) { toast("That one's already on the list"); return; }
+  setCustom([...customSymptoms, { k: "c_" + uid(), name }]);
+  await DB.setSetting("customSymptoms", customSymptoms);
+  render();
+  toast(`Added ${name}`);
 }
 
 async function saveCheckin(skip) {
@@ -399,10 +462,11 @@ async function deliver(blob, name) {
 const stamp = () => dayKey(Date.now());
 
 function exportCSV() {
-  const cols = ["date", "time", "type", "foods", "note", ...SYMPTOMS.map(s => s.k === "fog" ? "brain_fog" : s.k), ...FLAGS.map(f => f.k === "sleep" ? "bad_sleep" : f.k === "stress" ? "stressed" : f.k), "photo"];
+  const symCol = s => s.custom ? s.name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") : s.k === "fog" ? "brain_fog" : s.k === "cramps" ? "stomach_cramps" : s.k === "reflux" ? "acid_reflux" : s.k;
+  const cols = ["date", "time", "type", "foods", "note", ...SYMPTOMS.map(symCol), ...FLAGS.map(f => f.k === "sleep" ? "bad_sleep" : f.k === "stress" ? "stressed" : f.k), "photo"];
   const q = v => { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const rows = state.entries.map(e => [
-    dayKey(e.ts), fmtTime(e.ts), isLog(e) ? "log" : "check-in",
+    dayKey(e.ts), fmtTime(e.ts), kindLabel(e),
     (e.foods || []).join("; "), e.note || "",
     ...SYMPTOMS.map(s => e.sym?.[s.k] ?? ""),
     ...FLAGS.map(f => isLog(e) ? ((e.flags || []).includes(f.k) ? "yes" : "") : ""),
@@ -429,7 +493,7 @@ function exportPDF() {
 
   line("Gut Log", { size: 22, bold: true, color: [107, 31, 45], gap: 2 });
   line(`Food and symptom log · ${range}`, { size: 11, color: [147, 121, 107] });
-  line("Symptoms are self-rated 0 to 5. Bloating, brain fog and throat/swallowing: higher is worse. Energy: higher is better. Check-ins were logged about 2 hours after eating.", { size: 10, color: [147, 121, 107], gap: 14 });
+  line("Symptoms are self-rated 0 to 5. Energy: higher is better. Every other symptom: higher is worse. Check-ins were logged about 2 hours after eating. Symptoms-only entries were logged on their own, not tied to a meal.", { size: 10, color: [147, 121, 107], gap: 14 });
 
   line(`Patterns (last ${PATTERN_DAYS} days)`, { size: 14, bold: true, gap: 6 });
   const pats = findPatterns();
@@ -444,10 +508,13 @@ function exportPDF() {
     if (dk !== lastDay) { y += 6; need(40); line(fmtDay(e.ts), { size: 11.5, bold: true, color: [107, 31, 45], gap: 2 }); lastDay = dk; }
     const t = entryText(e);
     const parts = [];
-    if (isLog(e)) {
+    if (e.kind === "log") {
       if (t.foods) parts.push("Ate: " + t.foods);
       if (t.note) parts.push("Note: " + t.note);
       if (e.photo && !t.foods && !t.note) parts.push("Meal (photo)");
+    } else if (e.kind === "symptoms") {
+      parts.push("Symptoms");
+      if (t.note) parts.push("Note: " + t.note);
     } else parts.push("Check-in");
     if (t.sym) parts.push(t.sym);
     if (t.flags) parts.push(t.flags);
@@ -468,7 +535,7 @@ async function dataURLToBlob(u) { return (await fetch(u)).blob(); }
 
 async function backup() {
   const entries = await Promise.all(state.entries.map(async e => e.photo instanceof Blob ? { ...e, photo: await blobToDataURL(e.photo) } : e));
-  const json = JSON.stringify({ app: "gut-log", version: 1, exportedAt: new Date().toISOString(), entries });
+  const json = JSON.stringify({ app: "gut-log", version: 2, exportedAt: new Date().toISOString(), customSymptoms, entries });
   deliver(new Blob([json], { type: "application/json" }), `gut-log-backup-${stamp()}.json`);
 }
 
@@ -483,6 +550,11 @@ async function restore(file) {
       entries.push(e);
     }
     await DB.putMany(entries);
+    if (Array.isArray(data.customSymptoms)) {
+      const have = new Set(customSymptoms.map(c => c.k));
+      setCustom([...customSymptoms, ...data.customSymptoms.filter(c => c && c.k && c.name && !have.has(c.k))]);
+      await DB.setSetting("customSymptoms", customSymptoms);
+    }
     state.entries = await DB.all();
     render();
     toast(`Restored ${entries.length} entries`);
@@ -497,7 +569,15 @@ document.addEventListener("click", async ev => {
   if (!b) return;
   const act = b.dataset.act;
 
-  if (act === "go") return go(b.dataset.view);
+  if (act === "go") return go(b.dataset.view, b.dataset.mode);
+  if (act === "add-sym") return addSymptom();
+  if (act === "del-sym") {
+    const c = customSymptoms.find(x => x.k === b.dataset.k);
+    if (!c || !confirm(`Remove ${c.name}?`)) return;
+    setCustom(customSymptoms.filter(x => x.k !== c.k));
+    await DB.setSetting("customSymptoms", customSymptoms);
+    return render();
+  }
 
   if (act === "scale") {
     const target = b.dataset.scope === "ci" ? state.ci.sym : state.draft.sym;
@@ -558,12 +638,20 @@ document.addEventListener("change", async ev => {
   if (ev.target.id === "restore-input" && ev.target.files[0]) restore(ev.target.files[0]);
 });
 
+// Keep what you've typed when the screen redraws (photo, new symptom).
+document.addEventListener("input", ev => {
+  if (!state.draft) return;
+  if (ev.target.id === "note") state.draft.note = ev.target.value;
+  if (ev.target.id === "when") state.draft.time = ev.target.value;
+});
+
 // Coming back to the app: refresh so a due check-in appears.
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && state.view === "home") render();
 });
 
 (async function init() {
+  try { setCustom(await DB.getSetting("customSymptoms")); } catch {}
   try { state.entries = await DB.all(); } catch { toast("Couldn't open storage"); }
   render();
   scheduleReminders();

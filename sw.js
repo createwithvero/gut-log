@@ -1,7 +1,7 @@
 // Gut Log service worker: network-first with cache fallback, same as
 // Vero Strong. Works fully offline once opened; updates arrive whenever
 // there's a connection. Nothing here ever sends your data anywhere.
-const CACHE = "gutlog-cache-v1";
+const CACHE = "gutlog-cache-v2";
 const CORE = ["./", "index.html", "styles.css", "db.js", "app.js", "jspdf.min.js", "manifest.json", "icon-180.png", "icon-512.png"];
 
 self.addEventListener("install", e => {

@@ -207,6 +207,35 @@ textarea:focus { outline: none; border-color: var(--pink); }
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 
+/* ---------- Symptoms-only, time picker, added symptoms ---------- */
+.home-center { flex-direction: column; gap: 18px; }
+.sym-btn {
+  min-height: 52px; padding: 12px 26px; border-radius: 999px;
+  background: var(--card); border: 1.5px solid var(--line);
+  color: var(--burgundy); font-weight: 600; font-size: 17px;
+}
+.sym-btn:active { background: var(--cream); }
+
+.when { display: flex; align-items: center; gap: 8px; font-family: var(--serif); font-style: italic; font-size: 15px; color: var(--ink-soft); }
+.when input {
+  font-family: "Space Grotesk", sans-serif; font-style: normal; font-weight: 600; font-size: 17px; color: var(--burgundy);
+  background: var(--card); border: 1.5px solid var(--line); border-radius: 999px;
+  padding: 8px 14px; min-height: 44px; -webkit-appearance: none; appearance: none;
+}
+.when input:focus { outline: none; border-color: var(--pink); }
+
+.add-sym {
+  width: 100%; min-height: 50px; border-radius: 14px; border: 2px dashed var(--line);
+  color: var(--burgundy); font-weight: 600; font-size: 16px; margin-top: 2px;
+}
+
+.entry.sx { background: var(--pink-soft); }
+
+.mine { background: var(--card); border-radius: 18px; padding: 4px 16px; margin-bottom: 10px; }
+.mine-row { display: flex; justify-content: space-between; align-items: center; min-height: 50px; }
+.mine-row + .mine-row { border-top: 1px solid var(--line); }
+.mine-row button { color: var(--ink-soft); font-size: 15px; text-decoration: underline; padding: 10px 0 10px 12px; }
+
 /* Keep the check-in card compact so the Log button stays in reach. */
 .checkin { padding: 16px; }
 .checkin .scale { margin-bottom: 8px; }
