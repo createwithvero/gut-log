@@ -2,6 +2,7 @@
 
 const BASE_SYMPTOMS = [
   { k: "bloating", name: "Bloating", lo: "none", hi: "a lot" },
+  { k: "gas", name: "Trapped gas", lo: "none", hi: "bad" },
   { k: "reflux", name: "Acid reflux", lo: "none", hi: "bad" },
   { k: "heartburn", name: "Heartburn", lo: "none", hi: "bad" },
   { k: "cramps", name: "Stomach cramps", lo: "none", hi: "bad" },
@@ -17,6 +18,46 @@ function setCustom(list) {
   customSymptoms = Array.isArray(list) ? list.filter(c => c && c.k && c.name) : [];
   SYMPTOMS = [...BASE_SYMPTOMS, ...customSymptoms.map(c => ({ k: c.k, name: c.name, lo: "none", hi: "bad", custom: true }))];
 }
+// Poop types follow the Bristol Stool Form Scale (Lewis & Heaton, 1997),
+// the chart doctors use. 1 is hardest, 7 is watery, 3 and 4 are typical.
+const BROWN = "#8a5a3c";
+const POOP_TYPES = [
+  { t: 1, name: "Hard lumps", desc: "Separate hard lumps, like nuts", tag: "hard",
+    svg: `<circle cx="9" cy="16" r="4"/><circle cx="20" cy="12" r="4.5"/><circle cx="31" cy="17" r="4"/><circle cx="41" cy="12" r="3.5"/>` },
+  { t: 2, name: "Lumpy sausage", desc: "Sausage-shaped but lumpy", tag: "hard",
+    svg: `<circle cx="10" cy="14" r="6"/><circle cx="19" cy="13" r="6.5"/><circle cx="28" cy="14" r="6"/><circle cx="37" cy="13" r="6"/>` },
+  { t: 3, name: "Cracked sausage", desc: "Like a sausage, with cracks on the surface", tag: "typical",
+    svg: `<rect x="4" y="7" width="40" height="14" rx="7"/><path d="M14 8v5M23 21v-5M32 8v5" stroke="#fffdf8" stroke-width="1.6" fill="none"/>` },
+  { t: 4, name: "Smooth sausage", desc: "Smooth and soft, like a snake", tag: "typical",
+    svg: `<path d="M5 18c6-10 12 2 19-6s13-2 19-5" stroke="${BROWN}" stroke-width="7" stroke-linecap="round" fill="none"/>` },
+  { t: 5, name: "Soft blobs", desc: "Soft blobs with clear edges, easy to pass", tag: "loose",
+    svg: `<ellipse cx="10" cy="15" rx="6" ry="4.5"/><ellipse cx="24" cy="13" rx="6.5" ry="5"/><ellipse cx="38" cy="16" rx="6" ry="4.5"/>` },
+  { t: 6, name: "Mushy", desc: "Fluffy, ragged pieces, mushy", tag: "loose",
+    svg: `<path d="M5 19c0-4 3-6 6-5 1-4 5-6 8-3 2-4 7-4 9 0 3-3 8-1 8 3 4 0 6 3 5 6z"/>` },
+  { t: 7, name: "Watery", desc: "Watery, no solid pieces", tag: "loose",
+    svg: `<path d="M3 11c5-4 9 4 14 0s9 4 14 0 9 4 14 0M3 19c5-4 9 4 14 0s9 4 14 0 9 4 14 0" stroke="${BROWN}" stroke-width="2.6" stroke-linecap="round" fill="none"/>` },
+];
+const POOP_COLORS = [
+  { k: "brown", name: "Brown", c: "#8a5a3c" },
+  { k: "green", name: "Green", c: "#6f8f4e" },
+  { k: "yellow", name: "Yellow", c: "#d9b23c" },
+  { k: "black", name: "Black", c: "#2b2422", flag: true },
+  { k: "red", name: "Red", c: "#b2322f", flag: true },
+  { k: "pale", name: "Pale / clay", c: "#d8cfc0", flag: true },
+];
+const POOP_EXTRAS = [
+  { k: "strain", name: "Strained" },
+  { k: "urgent", name: "Urgent" },
+  { k: "incomplete", name: "Not fully empty" },
+  { k: "mucus", name: "Mucus" },
+  { k: "blood", name: "Blood", flag: true },
+  { k: "float", name: "Floats" },
+];
+const STOOL = { k: "_stool", name: "Poop", stool: true };
+const poopType = t => POOP_TYPES.find(p => p.t === t);
+const poopIcon = p => `<svg viewBox="0 0 48 28" fill="${BROWN}" aria-hidden="true">${p.svg}</svg>`;
+const poopWarn = d => d.color && POOP_COLORS.find(c => c.k === d.color)?.flag || d.extras.has("blood");
+
 const FLAGS = [
   { k: "coffee", name: "Coffee", phrase: "coffee" },
   { k: "dairy", name: "Dairy", phrase: "dairy" },
@@ -71,7 +112,16 @@ function parseFoods(note) {
 // "log" is a meal, "symptoms" is a symptoms-only entry, "checkin" answers a meal.
 const isLog = e => e.kind === "log" || e.kind === "symptoms";
 const hasFood = e => e.kind === "log" && (e.foods?.length || e.photo || (e.note || "").trim());
-const kindLabel = e => e.kind === "checkin" ? "check-in" : e.kind === "symptoms" ? "symptoms" : "meal";
+const kindLabel = e => e.kind === "checkin" ? "check-in" : e.kind === "symptoms" ? "symptoms" : e.kind === "poop" ? "poop" : "meal";
+
+function poopText(e) {
+  const p = poopType(e.type);
+  const bits = [];
+  if (p) bits.push(`Type ${p.t}, ${p.name.toLowerCase()}`);
+  if (e.color) bits.push(POOP_COLORS.find(c => c.k === e.color)?.name || e.color);
+  for (const k of e.extras || []) bits.push(POOP_EXTRAS.find(x => x.k === k)?.name || k);
+  return bits.join(" · ");
+}
 
 const hhmm = d => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 // The time you picked, today. If that's later than now, you meant last night.
@@ -135,7 +185,10 @@ function renderHome() {
       ${ci}
       <div class="home-center">
         <button class="log-btn" data-act="go" data-view="log">Log</button>
-        <button class="sym-btn" data-act="go" data-view="log" data-mode="symptoms">Just symptoms</button>
+        <div class="side-btns">
+          <button class="sym-btn" data-act="go" data-view="log" data-mode="symptoms">Just symptoms</button>
+          <button class="sym-btn" data-act="go" data-view="log" data-mode="poop">Poop</button>
+        </div>
       </div>
       <nav class="home-links">
         <button data-act="go" data-view="week">Your week</button>
@@ -146,7 +199,7 @@ function renderHome() {
 
 function renderLog() {
   const d = state.draft;
-  const top = `<header class="app">${backBtn}<label class="when"><span>${d.mode === "symptoms" ? "Felt at" : "Ate at"}</span><input type="time" id="when" value="${d.time}"></label></header>`;
+  const top = `<header class="app">${backBtn}<label class="when"><span>${d.mode === "symptoms" ? "Felt at" : d.mode === "poop" ? "Went at" : "Ate at"}</span><input type="time" id="when" value="${d.time}"></label></header>`;
   const feel = `<div class="field">
       <span class="label">How you feel</span>
       ${SYMPTOMS.map(s => scaleHTML("log", s, d.sym[s.k])).join("")}
@@ -156,6 +209,33 @@ function renderLog() {
       <span class="label">Anything else</span>
       <div class="chips">${FLAGS.map(f => `<button class="chip flag ${d.flags.has(f.k) ? "on" : ""}" data-act="flag" data-k="${f.k}">${f.name}</button>`).join("")}</div>
     </div>`;
+  if (d.mode === "poop") {
+    return `${top}
+      <h2 class="page-title">Poop</h2>
+      <div class="field">
+        <span class="label">What it looked like</span>
+        <div class="ptypes">${POOP_TYPES.map(p => `<button class="ptype ${d.type === p.t ? "on" : ""}" data-act="ptype" data-t="${p.t}">
+          <span class="pn">${p.t}</span>${poopIcon(p)}
+          <span class="pt"><b>${p.name}</b><small>${p.desc}</small></span>
+          <span class="ptag ${p.tag}">${p.tag}</span>
+        </button>`).join("")}</div>
+        <p class="hint" style="margin-top:8px">Types 3 and 4 are what doctors call typical. 1 and 2 lean constipated, 5 to 7 lean loose.</p>
+      </div>
+      <div class="field">
+        <span class="label">Color</span>
+        <div class="chips">${POOP_COLORS.map(c => `<button class="chip pcolor ${d.color === c.k ? "on" : ""}" data-act="pcolor" data-k="${c.k}"><i style="background:${c.c}"></i>${c.name}</button>`).join("")}</div>
+      </div>
+      <div class="field">
+        <span class="label">Anything else</span>
+        <div class="chips">${POOP_EXTRAS.map(x => `<button class="chip flag ${d.extras.has(x.k) ? "on" : ""}" data-act="pextra" data-k="${x.k}">${x.name}</button>`).join("")}</div>
+        <p class="warn" ${poopWarn(d) ? "" : "hidden"}>Black, red or pale poop, or blood, is worth a call to your doctor, especially if it's new and you can't tie it to something you ate or took. If there's a lot of blood, or you feel dizzy or faint, get care right away.</p>
+      </div>
+      <div class="field">
+        <span class="label">Note</span>
+        <textarea id="note" rows="2" placeholder="optional" enterkeyhint="done">${esc(d.note)}</textarea>
+      </div>
+      <div class="save-bar"><button class="primary" data-act="save">Save</button></div>`;
+  }
   if (d.mode === "symptoms") {
     return `${top}
       <h2 class="page-title">Symptoms</h2>
@@ -200,6 +280,7 @@ function buildDays(sinceTs) {
       (e.flags || []).forEach(f => d.factors.add("g:" + f));
     }
     for (const s of SYMPTOMS) if (e.sym && e.sym[s.k] != null) (d.sym[s.k] ||= []).push(e.sym[s.k]);
+    if (e.kind === "poop" && e.type) (d.sym[STOOL.k] ||= []).push(e.type);
   }
   return days;
 }
@@ -214,7 +295,7 @@ function findPatterns() {
   const days = [...buildDays(since).values()];
   const factors = new Set(days.flatMap(d => [...d.factors]));
   const found = [];
-  for (const F of factors) for (const s of SYMPTOMS) {
+  for (const F of factors) for (const s of [...SYMPTOMS, STOOL]) {
     const withF = [], without = [];
     for (const d of days) {
       if (!d.sym[s.k]) continue;
@@ -223,7 +304,9 @@ function findPatterns() {
     if (withF.length < MIN_DAYS || without.length < MIN_DAYS) continue;
     const mw = mean(withF), mo = mean(without), diff = mw - mo;
     if (Math.abs(diff) < MIN_DIFF) continue;
-    found.push({ F, s, diff, mw, mo, nw: withF.length, no: without.length, worse: s.goodHigh ? diff < 0 : diff > 0 });
+    // For poop, "worse" means drifting further from typical (type 3 to 4).
+    const worse = s.stool ? Math.abs(mw - 3.5) > Math.abs(mo - 3.5) : s.goodHigh ? diff < 0 : diff > 0;
+    found.push({ F, s, diff, mw, mo, nw: withF.length, no: without.length, worse });
   }
   // Group by symptom and direction so it reads "with coffee and dairy".
   const groups = new Map();
@@ -236,8 +319,10 @@ function findPatterns() {
     .sort((a, b) => (b[0].worse - a[0].worse) || Math.abs(b[0].diff) - Math.abs(a[0].diff))
     .slice(0, 3)
     .map(g => ({
-      text: `${g[0].s.name} was ${g[0].diff > 0 ? "higher" : "lower"} on days with ${joinAnd(g.map(x => factorPhrase(x.F)))}.`,
-      detail: g.map(x => `${cap(factorPhrase(x.F))}: ${r1(x.mw)} on ${x.nw} days with, ${r1(x.mo)} on ${x.no} days without`).join(". ") + ".",
+      text: g[0].s.stool
+        ? `Poop was ${g[0].diff > 0 ? "looser" : "harder"} on days with ${joinAnd(g.map(x => factorPhrase(x.F)))}.`
+        : `${g[0].s.name} was ${g[0].diff > 0 ? "higher" : "lower"} on days with ${joinAnd(g.map(x => factorPhrase(x.F)))}.`,
+      detail: g.map(x => `${cap(factorPhrase(x.F))}: ${g[0].s.stool ? "type " : ""}${r1(x.mw)} on ${x.nw} days with, ${r1(x.mo)} on ${x.no} days without`).join(". ") + ".",
     }));
 }
 
@@ -262,6 +347,12 @@ function renderWeek() {
   state.urls.forEach(u => URL.revokeObjectURL(u)); state.urls = [];
   const pats = findPatterns();
   const avgs = weekAverages();
+  const weekPoops = state.entries.filter(e => e.kind === "poop" && e.ts >= Date.now() - 7 * 24 * HOUR);
+  const typed = weekPoops.filter(e => e.type).map(e => e.type);
+  const poopTiles = weekPoops.length
+    ? `<div class="avg pp"><div class="n">${weekPoops.length}</div><div class="l">Poops</div></div>
+       <div class="avg pp"><div class="n">${typed.length ? r1(mean(typed)) : "–"}</div><div class="l">Poop type (3 to 4 is typical)</div></div>`
+    : "";
   const patHTML = pats.length
     ? pats.map(p => `<p class="pattern">${esc(p.text)}<small>${esc(p.detail)}</small></p>`).join("")
     : `<p class="pattern">Not enough logs yet to spot patterns.<small>Once a food or toggle shows up on a few days (and is missing on a few others), the app will start comparing them here.</small></p>`;
@@ -274,8 +365,10 @@ function renderWeek() {
     const t = entryText(e);
     let img = "";
     if (e.photo instanceof Blob) { const u = URL.createObjectURL(e.photo); state.urls.push(u); img = `<img src="${u}" alt="">`; }
-    tl += `<div class="entry ${e.kind === "checkin" ? "ci" : e.kind === "symptoms" ? "sx" : ""}">${img}<div class="body">
+    if (e.kind === "poop" && poopType(e.type)) img = `<span class="picon">${poopIcon(poopType(e.type))}</span>`;
+    tl += `<div class="entry ${{ checkin: "ci", symptoms: "sx", poop: "pp" }[e.kind] || ""}">${img}<div class="body">
       <div class="time"><span>${fmtTime(e.ts)}${e.kind === "log" ? "" : " · " + kindLabel(e)}</span><button data-act="del" data-id="${e.id}">delete</button></div>
+      ${e.kind === "poop" ? `<div class="note">${esc(poopText(e) || "Logged")}</div>` : ""}
       ${t.foods ? `<div class="note">${esc(t.foods)}</div>` : ""}
       ${t.note ? `<div class="note">${esc(t.note)}</div>` : ""}
       ${t.sym ? `<div class="meta">${esc(t.sym)}</div>` : ""}
@@ -287,8 +380,8 @@ function renderWeek() {
     <h2 class="page-title">Your week</h2>
     <section class="card">${patHTML}</section>
     <p class="footnote">Patterns from your last ${PATTERN_DAYS} days. These are just what your own logs show, to talk over with your doctor.</p>
-    ${avgs.some(a => a.avg != null) ? `<h3 class="section-head">Last 7 days, on average</h3>
-      <div class="avgs">${avgs.map(a => `<div class="avg"><div class="n">${a.avg == null ? "–" : r1(a.avg)}</div><div class="l">${a.s.name}</div></div>`).join("")}</div>` : ""}
+    ${avgs.some(a => a.avg != null) || poopTiles ? `<h3 class="section-head">Last 7 days, on average</h3>
+      <div class="avgs">${poopTiles}${avgs.map(a => `<div class="avg"><div class="n">${a.avg == null ? "–" : r1(a.avg)}</div><div class="l">${a.s.name}</div></div>`).join("")}</div>` : ""}
     <h3 class="section-head">Timeline</h3>
     ${tl || `<p class="empty">Your logs will show up here.</p>`}`;
 }
@@ -337,7 +430,11 @@ function render() {
 function go(view, mode) {
   if (view === "log") {
     const t = hhmm(new Date());
-    state.draft = { mode: mode === "symptoms" ? "symptoms" : "meal", time: t, time0: t, photo: null, photoURL: null, note: "", foods: new Set(), sym: {}, flags: new Set() };
+    state.draft = {
+      mode: ["symptoms", "poop"].includes(mode) ? mode : "meal", time: t, time0: t,
+      photo: null, photoURL: null, note: "", foods: new Set(), sym: {}, flags: new Set(),
+      type: null, color: null, extras: new Set(),
+    };
   }
   else if (state.draft?.photoURL) { URL.revokeObjectURL(state.draft.photoURL); state.draft = null; }
   state.view = view;
@@ -368,7 +465,9 @@ async function saveLog() {
   const d = state.draft;
   const note = document.getElementById("note").value.trim();
   const ts = whenTs(d);
-  const entry = d.mode === "symptoms"
+  const entry = d.mode === "poop"
+    ? { id: uid(), ts, kind: "poop", note, type: d.type, color: d.color, extras: [...d.extras] }
+    : d.mode === "symptoms"
     ? { id: uid(), ts, kind: "symptoms", note, sym: { ...d.sym }, flags: [...d.flags] }
     : {
         id: uid(), ts, kind: "log",
@@ -463,7 +562,7 @@ const stamp = () => dayKey(Date.now());
 
 function exportCSV() {
   const symCol = s => s.custom ? s.name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") : s.k === "fog" ? "brain_fog" : s.k === "cramps" ? "stomach_cramps" : s.k === "reflux" ? "acid_reflux" : s.k;
-  const cols = ["date", "time", "type", "foods", "note", ...SYMPTOMS.map(symCol), ...FLAGS.map(f => f.k === "sleep" ? "bad_sleep" : f.k === "stress" ? "stressed" : f.k), "photo"];
+  const cols = ["date", "time", "type", "foods", "note", ...SYMPTOMS.map(symCol), ...FLAGS.map(f => f.k === "sleep" ? "bad_sleep" : f.k === "stress" ? "stressed" : f.k), "photo", "poop_type", "poop_color", "poop_notes"];
   const q = v => { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const rows = state.entries.map(e => [
     dayKey(e.ts), fmtTime(e.ts), kindLabel(e),
@@ -471,6 +570,9 @@ function exportCSV() {
     ...SYMPTOMS.map(s => e.sym?.[s.k] ?? ""),
     ...FLAGS.map(f => isLog(e) ? ((e.flags || []).includes(f.k) ? "yes" : "") : ""),
     e.photo ? "yes" : "",
+    e.kind === "poop" ? e.type ?? "" : "",
+    e.kind === "poop" ? e.color ?? "" : "",
+    e.kind === "poop" ? (e.extras || []).map(k => POOP_EXTRAS.find(x => x.k === k)?.name || k).join("; ") : "",
   ].map(q).join(","));
   const csv = [cols.join(","), ...rows].join("\n");
   deliver(new Blob([csv], { type: "text/csv" }), `gut-log-${stamp()}.csv`);
@@ -492,8 +594,16 @@ function exportPDF() {
   const range = list.length ? `${fmtDay(list[0].ts)} to ${fmtDay(list[list.length - 1].ts)}` : "No entries yet";
 
   line("Gut Log", { size: 22, bold: true, color: [107, 31, 45], gap: 2 });
-  line(`Food and symptom log · ${range}`, { size: 11, color: [147, 121, 107] });
-  line("Symptoms are self-rated 0 to 5. Energy: higher is better. Every other symptom: higher is worse. Check-ins were logged about 2 hours after eating. Symptoms-only entries were logged on their own, not tied to a meal.", { size: 10, color: [147, 121, 107], gap: 14 });
+  line(`Food, symptom and poop log · ${range}`, { size: 11, color: [147, 121, 107] });
+  line("Symptoms are self-rated 0 to 5. Energy: higher is better. Every other symptom: higher is worse. Check-ins were logged about 2 hours after eating. Symptoms-only entries were logged on their own, not tied to a meal. Poop types use the Bristol Stool Form Scale: 1 is separate hard lumps, 4 is smooth and soft, 7 is watery.", { size: 10, color: [147, 121, 107], gap: 14 });
+  const poops = list.filter(e => e.kind === "poop");
+  if (poops.length) {
+    const days = new Set(poops.map(e => dayKey(e.ts))).size;
+    const typed = poops.filter(e => e.type).map(e => e.type);
+    const counts = [1, 2, 3, 4, 5, 6, 7].map(n => typed.filter(x => x === n).length);
+    line("Poop summary", { size: 14, bold: true, gap: 6 });
+    line(`${poops.length} logged across ${days} days.${typed.length ? ` Average type ${r1(mean(typed))}. ` + counts.map((c, i) => c ? `Type ${i + 1}: ${c}` : "").filter(Boolean).join(", ") + "." : ""}`, { size: 11, gap: 14 });
+  }
 
   line(`Patterns (last ${PATTERN_DAYS} days)`, { size: 14, bold: true, gap: 6 });
   const pats = findPatterns();
@@ -514,6 +624,9 @@ function exportPDF() {
       if (e.photo && !t.foods && !t.note) parts.push("Meal (photo)");
     } else if (e.kind === "symptoms") {
       parts.push("Symptoms");
+      if (t.note) parts.push("Note: " + t.note);
+    } else if (e.kind === "poop") {
+      parts.push("Poop: " + (poopText(e).replace(/ · /g, ", ") || "logged"));
       if (t.note) parts.push("Note: " + t.note);
     } else parts.push("Check-in");
     if (t.sym) parts.push(t.sym);
@@ -571,6 +684,17 @@ document.addEventListener("click", async ev => {
 
   if (act === "go") return go(b.dataset.view, b.dataset.mode);
   if (act === "add-sym") return addSymptom();
+  if (act === "ptype" || act === "pcolor" || act === "pextra") {
+    const d = state.draft;
+    if (act === "ptype") { const t = +b.dataset.t; d.type = d.type === t ? null : t; }
+    if (act === "pcolor") d.color = d.color === b.dataset.k ? null : b.dataset.k;
+    if (act === "pextra") { const k = b.dataset.k; d.extras.has(k) ? d.extras.delete(k) : d.extras.add(k); }
+    document.querySelectorAll("[data-act=ptype]").forEach(x => x.classList.toggle("on", +x.dataset.t === d.type));
+    document.querySelectorAll("[data-act=pcolor]").forEach(x => x.classList.toggle("on", x.dataset.k === d.color));
+    document.querySelectorAll("[data-act=pextra]").forEach(x => x.classList.toggle("on", d.extras.has(x.dataset.k)));
+    document.querySelector(".warn").hidden = !poopWarn(d);
+    return;
+  }
   if (act === "del-sym") {
     const c = customSymptoms.find(x => x.k === b.dataset.k);
     if (!c || !confirm(`Remove ${c.name}?`)) return;

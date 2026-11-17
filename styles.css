@@ -230,6 +230,34 @@ textarea:focus { outline: none; border-color: var(--pink); }
 }
 
 .entry.sx { background: var(--pink-soft); }
+.entry.pp { background: var(--orange-soft); }
+.picon { width: 56px; flex: none; display: flex; align-items: center; }
+.picon svg { width: 56px; height: 33px; }
+
+/* ---------- Poop ---------- */
+.side-btns { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.ptypes { display: flex; flex-direction: column; gap: 8px; }
+.ptype {
+  display: grid; grid-template-columns: 22px 56px 1fr auto; align-items: center; gap: 10px;
+  text-align: left; padding: 10px 14px; min-height: 62px; border-radius: 16px;
+  background: var(--card); border: 1.5px solid var(--line);
+}
+.ptype svg { width: 56px; height: 33px; }
+.ptype .pn { font-family: var(--serif); font-weight: 600; font-size: 20px; color: var(--burgundy); }
+.ptype .pt { display: flex; flex-direction: column; line-height: 1.25; }
+.ptype .pt b { font-weight: 600; font-size: 16px; }
+.ptype .pt small { font-size: 13.5px; color: var(--ink-soft); }
+.ptag { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 8px; border-radius: 999px; }
+.ptag.hard { background: var(--cream); color: var(--ink-soft); }
+.ptag.typical { background: var(--sage-soft); color: #4f6349; }
+.ptag.loose { background: var(--orange-soft); color: #9a4a1f; }
+.ptype.on { border-color: var(--burgundy); box-shadow: 0 0 0 2px var(--burgundy) inset; background: #fff6ef; }
+.pcolor { display: inline-flex; align-items: center; gap: 8px; }
+.pcolor i { width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(0,0,0,.12); display: inline-block; }
+.chip.pcolor.on { background: var(--card); border-color: var(--burgundy); box-shadow: 0 0 0 1.5px var(--burgundy) inset; color: var(--ink-deep); }
+.warn { margin: 12px 4px 0; padding: 12px 14px; border-radius: 14px; background: #fbe1df; color: #7a2622; font-size: 15px; }
+.warn[hidden] { display: none; }
+.avg.pp { background: var(--orange-soft); }
 
 .mine { background: var(--card); border-radius: 18px; padding: 4px 16px; margin-bottom: 10px; }
 .mine-row { display: flex; justify-content: space-between; align-items: center; min-height: 50px; }
