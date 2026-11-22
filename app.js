@@ -63,16 +63,8 @@ const FLAGS = [
   { k: "dairy", name: "Dairy", phrase: "dairy" },
   { k: "sleep", name: "Bad sleep", phrase: "bad sleep" },
   { k: "stress", name: "Stressed", phrase: "stress" },
+  { k: "period", name: "Period", phrase: "your period" },
 ];
-// Cycle phase is tapped only when it changes. For pattern finding, the app
-// carries the last phase forward for up to a typical length of that phase.
-const PHASES = [
-  { k: "menstrual", name: "Period", tag: "Period", phrase: "your period", days: 7 },
-  { k: "follicular", name: "Follicular", tag: "Follicular phase", phrase: "your follicular phase", days: 14 },
-  { k: "ovulation", name: "Ovulation", tag: "Ovulation", phrase: "ovulation", days: 3 },
-  { k: "luteal", name: "Luteal", tag: "Luteal phase", phrase: "your luteal phase", days: 16 },
-];
-const phaseOf = k => PHASES.find(p => p.k === k);
 const HOUR = 3600e3;
 const CHECKIN_AFTER = 2 * HOUR;        // prompt shows up 2 hours after a food log
 const CHECKIN_EXPIRES = 12 * HOUR;     // after this it quietly goes away, no nagging
@@ -81,7 +73,7 @@ const MIN_DAYS = 3;                    // need at least this many days with AND 
 const MIN_DIFF = 0.8;                  // on the 0 to 5 scale
 const MAX_CHIPS = 16;
 
-const state = { view: "home", entries: [], draft: null, ci: null, urls: [] };
+const state = { view: "home", entries: [], draft: null, ci: null, urls: [], openDays: new Set() };
 const $app = document.getElementById("app");
 
 // ---------- helpers ----------
@@ -174,7 +166,6 @@ function header(left) {
   return `<header class="app">${left}<div class="date">${new Date().toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</div></header>`;
 }
 const backBtn = `<button class="back" data-act="go" data-view="home">‹ Home</button>`;
-const phaseChips = sel => PHASES.map(p => `<button class="chip phase ${sel === p.k ? "on" : ""}" data-act="phase" data-k="${p.k}">${p.name}</button>`).join("");
 
 function renderHome() {
   const p = pendingCheckin();
@@ -226,11 +217,6 @@ function renderLog() {
   const extra = `<div class="field">
       <span class="label">Anything else</span>
       <div class="chips">${FLAGS.map(f => `<button class="chip flag ${d.flags.has(f.k) ? "on" : ""}" data-act="flag" data-k="${f.k}">${f.name}</button>`).join("")}</div>
-    </div>
-    <div class="field">
-      <span class="label">Cycle phase</span>
-      <div class="chips">${phaseChips(d.phase)}</div>
-      <p class="hint" style="margin-top:8px">Only tap when it changes. The app carries it forward to the next few days.</p>
     </div>`;
   if (d.mode === "checkin") {
     return `${top}
@@ -312,34 +298,12 @@ function buildDays(sinceTs) {
     for (const s of SYMPTOMS) if (e.sym && e.sym[s.k] != null) (d.sym[s.k] ||= []).push(e.sym[s.k]);
     if (e.kind === "poop" && e.type) (d.sym[STOOL.k] ||= []).push(e.type);
   }
-  // Cycle phase: each day takes the most recent phase you tapped, as long as
-  // it's within that phase's typical length. Marks from before the window count.
-  const DAY = 24 * HOUR;
-  const dayStart = k => new Date(k + "T00:00").getTime();
-  const marks = state.entries.filter(e => e.phase && phaseOf(e.phase)).map(e => ({ t: dayStart(dayKey(e.ts)), p: e.phase, ts: e.ts }));
-  for (const [k, d] of days) {
-    const t = dayStart(k);
-    let best = null;
-    for (const m of marks) if (m.t <= t && (!best || m.ts > best.ts)) best = m;
-    if (best && Math.round((t - best.t) / DAY) < phaseOf(best.p).days) {
-      d.phase = best.p;
-      d.factors.add("p:" + best.p);
-    }
-  }
   return days;
 }
 
 function factorPhrase(id) {
   if (id.startsWith("g:")) return FLAGS.find(f => f.k === id.slice(2))?.phrase || id.slice(2);
-  if (id.startsWith("p:")) return phaseOf(id.slice(2))?.phrase || id.slice(2);
   return id.slice(2);
-}
-// "on days with coffee and dairy and during your luteal phase"
-function factorContext(ids) {
-  const daily = ids.filter(id => !id.startsWith("p:")).map(factorPhrase);
-  const parts = daily.length ? ["on days with " + joinAnd(daily)] : [];
-  ids.filter(id => id.startsWith("p:")).forEach(id => parts.push("during " + factorPhrase(id)));
-  return joinAnd(parts);
 }
 
 function findPatterns() {
@@ -351,8 +315,6 @@ function findPatterns() {
     const withF = [], without = [];
     for (const d of days) {
       if (!d.sym[s.k]) continue;
-      // A phase is compared against the other phases, not against days with no phase known.
-      if (F.startsWith("p:") && !d.phase) continue;
       (d.factors.has(F) ? withF : without).push(mean(d.sym[s.k]));
     }
     if (withF.length < MIN_DAYS || without.length < MIN_DAYS) continue;
@@ -374,12 +336,9 @@ function findPatterns() {
     .slice(0, 3)
     .map(g => ({
       text: g[0].s.stool
-        ? `Poop was ${g[0].diff > 0 ? "looser" : "harder"} ${factorContext(g.map(x => x.F))}.`
-        : `${g[0].s.name} was ${g[0].diff > 0 ? "higher" : "lower"} ${factorContext(g.map(x => x.F))}.`,
-      detail: g.map(x => {
-        const ph = x.F.startsWith("p:");
-        return `${cap(factorPhrase(x.F))}: ${g[0].s.stool ? "type " : ""}${r1(x.mw)} on ${x.nw} days ${ph ? "in it" : "with"}, ${r1(x.mo)} on ${x.no} ${ph ? "days in other phases" : "days without"}`;
-      }).join(". ") + ".",
+        ? `Poop was ${g[0].diff > 0 ? "looser" : "harder"} on days with ${joinAnd(g.map(x => factorPhrase(x.F)))}.`
+        : `${g[0].s.name} was ${g[0].diff > 0 ? "higher" : "lower"} on days with ${joinAnd(g.map(x => factorPhrase(x.F)))}.`,
+      detail: g.map(x => `${cap(factorPhrase(x.F))}: ${g[0].s.stool ? "type " : ""}${r1(x.mw)} on ${x.nw} days with, ${r1(x.mo)} on ${x.no} days without`).join(". ") + ".",
     }));
 }
 
@@ -393,11 +352,62 @@ function weekAverages() {
 
 function entryText(e) {
   const sym = SYMPTOMS.filter(s => e.sym && e.sym[s.k] != null).map(s => `${s.name} ${e.sym[s.k]}`).join(" · ");
-  const flags = [...(e.flags || []).map(k => FLAGS.find(f => f.k === k)?.name || k), ...(e.phase && phaseOf(e.phase) ? [phaseOf(e.phase).tag] : [])].join(", ");
+  const flags = (e.flags || []).map(k => FLAGS.find(f => f.k === k)?.name || k).join(", ");
   let foods = (e.foods || []).map(cap).join(", ");
   const note = (e.note || "").trim();
   const showNote = note && (e.kind !== "log" || parseFoods(note).leftover);
   return { sym, flags, foods, note: showNote ? note : "" };
+}
+
+function entryCard(e) {
+  const t = entryText(e);
+  let img = "";
+  if (e.photo instanceof Blob) { const u = URL.createObjectURL(e.photo); state.urls.push(u); img = `<img src="${u}" alt="">`; }
+  if (e.kind === "poop" && poopType(e.type)) img = `<span class="picon">${poopIcon(poopType(e.type))}</span>`;
+  return `<button class="entry ${{ checkin: "ci", symptoms: "sx", poop: "pp" }[e.kind] || ""}" data-act="edit" data-id="${e.id}">${img}<div class="body">
+    <div class="time"><span>${fmtTime(e.ts)} · ${kindLabel(e)}</span><span class="edit-hint">edit</span></div>
+    ${e.kind === "poop" ? `<div class="note">${esc(poopText(e) || "Logged")}</div>` : ""}
+    ${t.foods ? `<div class="note">${esc(t.foods)}</div>` : ""}
+    ${t.note ? `<div class="note">${esc(t.note)}</div>` : ""}
+    ${t.sym ? `<div class="meta">${esc(t.sym)}</div>` : ""}
+    ${t.flags ? `<div class="tags">${esc(t.flags)}</div>` : ""}
+  </div></button>`;
+}
+
+function dayName(ts) {
+  const k = dayKey(ts);
+  if (k === dayKey(Date.now())) return "Today";
+  if (k === dayKey(Date.now() - 24 * HOUR)) return "Yesterday";
+  return fmtDay(ts);
+}
+
+// The worst "bad" symptom that day (energy counts backwards).
+function dayPeak(items) {
+  let peak = null;
+  for (const e of items) for (const s of SYMPTOMS) {
+    const v = e.sym?.[s.k];
+    if (v == null) continue;
+    const bad = s.goodHigh ? 5 - v : v;
+    if (!peak || bad > peak.bad) peak = { s, v, bad };
+  }
+  return peak;
+}
+
+// Day color: green when calm, peach for some symptoms, pink for a hard day.
+function dayTone(items) {
+  const p = dayPeak(items);
+  if (!p) return "tone-none";
+  return p.bad <= 1 ? "tone-calm" : p.bad <= 3 ? "tone-mid" : "tone-high";
+}
+
+function daySummary(items) {
+  const n = k => items.filter(e => e.kind === k).length;
+  const plural = (c, one, many) => c ? `${c} ${c === 1 ? one : many}` : "";
+  const bits = [plural(n("log"), "meal", "meals"), plural(n("symptoms") + n("checkin"), "symptom log", "symptom logs"), plural(n("poop"), "poop", "poops")].filter(Boolean);
+  if (items.some(e => (e.flags || []).includes("period"))) bits.push("period");
+  const p = dayPeak(items);
+  if (p && p.bad >= 2) bits.push(`${p.s.name.toLowerCase()} ${p.v}`);
+  return bits.join(" · ");
 }
 
 function renderWeek() {
@@ -414,23 +424,19 @@ function renderWeek() {
     ? pats.map(p => `<p class="pattern">${esc(p.text)}<small>${esc(p.detail)}</small></p>`).join("")
     : `<p class="pattern">Not enough logs yet to spot patterns.<small>Once a food or toggle shows up on a few days (and is missing on a few others), the app will start comparing them here.</small></p>`;
 
-  const list = [...state.entries].reverse();
-  let lastDay = "", tl = "";
-  for (const e of list) {
+  // One colored, tappable row per day. It opens to show everything from that day.
+  const byDay = new Map();
+  for (const e of [...state.entries].reverse()) {
     const dk = dayKey(e.ts);
-    if (dk !== lastDay) { tl += `<div class="day-head">${fmtDay(e.ts)}</div>`; lastDay = dk; }
-    const t = entryText(e);
-    let img = "";
-    if (e.photo instanceof Blob) { const u = URL.createObjectURL(e.photo); state.urls.push(u); img = `<img src="${u}" alt="">`; }
-    if (e.kind === "poop" && poopType(e.type)) img = `<span class="picon">${poopIcon(poopType(e.type))}</span>`;
-    tl += `<button class="entry ${{ checkin: "ci", symptoms: "sx", poop: "pp" }[e.kind] || ""}" data-act="edit" data-id="${e.id}">${img}<div class="body">
-      <div class="time"><span>${fmtTime(e.ts)}${e.kind === "log" ? "" : " · " + kindLabel(e)}</span><span class="edit-hint">edit</span></div>
-      ${e.kind === "poop" ? `<div class="note">${esc(poopText(e) || "Logged")}</div>` : ""}
-      ${t.foods ? `<div class="note">${esc(t.foods)}</div>` : ""}
-      ${t.note ? `<div class="note">${esc(t.note)}</div>` : ""}
-      ${t.sym ? `<div class="meta">${esc(t.sym)}</div>` : ""}
-      ${t.flags ? `<div class="tags">${esc(t.flags)}</div>` : ""}
-    </div></button>`;
+    if (!byDay.has(dk)) byDay.set(dk, []);
+    byDay.get(dk).push(e);
+  }
+  let tl = "";
+  for (const [dk, items] of byDay) {
+    tl += `<details class="day ${dayTone(items)}" data-day="${dk}" ${state.openDays.has(dk) ? "open" : ""}>
+      <summary><span class="day-main"><b>${dayName(items[0].ts)}</b><small>${esc(daySummary(items))}</small></span><span class="chev" aria-hidden="true"></span></summary>
+      <div class="day-items">${items.map(entryCard).join("")}</div>
+    </details>`;
   }
 
   return `${header(backBtn)}
@@ -440,7 +446,7 @@ function renderWeek() {
     ${avgs.some(a => a.avg != null) || poopTiles ? `<h3 class="section-head">Last 7 days, on average</h3>
       <div class="avgs">${poopTiles}${avgs.map(a => `<div class="avg"><div class="n">${a.avg == null ? "–" : r1(a.avg)}</div><div class="l">${a.s.name}</div></div>`).join("")}</div>` : ""}
     <h3 class="section-head">Timeline</h3>
-    ${tl ? `<p class="hint">Tap any entry to change it.</p>` : ""}
+    ${tl ? `<p class="hint">Tap a day to see everything from it. Green was a calm day, peach had some symptoms, pink was a harder one.</p>` : ""}
     ${tl ||`<p class="empty">Your logs will show up here.</p>`}`;
 }
 
@@ -497,7 +503,7 @@ function go(view, mode, editId) {
       editId: e ? e.id : null, ts0: e ? e.ts : null, time: t, time0: t,
       photo: e?.photo instanceof Blob ? e.photo : null, photoURL: e?.photo instanceof Blob ? URL.createObjectURL(e.photo) : null,
       note: e?.note || "", foods: new Set(e?.foods || []), removed: new Set(), sym: { ...(e?.sym || {}) }, flags: new Set(e?.flags || []),
-      phase: e?.phase || null, type: e?.type ?? null, color: e?.color ?? null, extras: new Set(e?.extras || []),
+      type: e?.type ?? null, color: e?.color ?? null, extras: new Set(e?.extras || []),
     };
   }
   state.view = view;
@@ -530,18 +536,17 @@ async function saveLog() {
   const ts = whenTs(d);
   const old = d.editId ? state.entries.find(x => x.id === d.editId) : null;
   const id = old ? old.id : uid();
-  const phase = d.phase || undefined;
   let entry = d.mode === "poop"
     ? { id, ts, kind: "poop", note, type: d.type, color: d.color, extras: [...d.extras] }
     : d.mode === "checkin"
     ? { id, ts, kind: "checkin", forLog: old?.forLog, sym: { ...d.sym } }
     : d.mode === "symptoms"
-    ? { id, ts, kind: "symptoms", note, sym: { ...d.sym }, flags: [...d.flags], phase }
+    ? { id, ts, kind: "symptoms", note, sym: { ...d.sym }, flags: [...d.flags] }
     : {
         id, ts, kind: "log",
         // Foods you untapped stay off, even if they're also typed in the note.
         note, foods: [...new Set([...d.foods, ...parseFoods(note).foods.filter(f => !d.removed.has(f))])],
-        photo: d.photo || null, sym: { ...d.sym }, flags: [...d.flags], phase,
+        photo: d.photo || null, sym: { ...d.sym }, flags: [...d.flags],
       };
   if (old?.checkin) entry.checkin = old.checkin;
   // A meal logged after the fact doesn't get a "how do you feel" prompt.
@@ -558,12 +563,13 @@ async function saveLog() {
   toast(old ? "Changes saved" : backdated ? `Saved for ${when}` : "Saved");
 }
 
-// Older versions had "Period" as a toggle. It's a cycle phase now.
+// For a few days Period was a cycle phase. It's a plain toggle again, so
+// entries tagged with that phase get the Period toggle back.
 async function migrate(list) {
   const changed = [];
-  for (const e of list) if ((e.flags || []).includes("period")) {
-    e.flags = e.flags.filter(f => f !== "period");
-    if (!e.phase) e.phase = "menstrual";
+  for (const e of list) if (e.phase === "menstrual") {
+    e.flags = [...new Set([...(e.flags || []), "period"])];
+    delete e.phase;
     changed.push(e);
   }
   if (changed.length) await DB.putMany(changed);
@@ -649,14 +655,13 @@ const stamp = () => dayKey(Date.now());
 
 function exportCSV() {
   const symCol = s => s.custom ? s.name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") : s.k === "fog" ? "brain_fog" : s.k === "cramps" ? "stomach_cramps" : s.k === "reflux" ? "acid_reflux" : s.k;
-  const cols = ["date", "time", "type", "foods", "note", ...SYMPTOMS.map(symCol), ...FLAGS.map(f => f.k === "sleep" ? "bad_sleep" : f.k === "stress" ? "stressed" : f.k), "cycle_phase", "photo", "poop_type", "poop_color", "poop_notes"];
+  const cols = ["date", "time", "type", "foods", "note", ...SYMPTOMS.map(symCol), ...FLAGS.map(f => f.k === "sleep" ? "bad_sleep" : f.k === "stress" ? "stressed" : f.k), "photo", "poop_type", "poop_color", "poop_notes"];
   const q = v => { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const rows = state.entries.map(e => [
     dayKey(e.ts), fmtTime(e.ts), kindLabel(e),
     (e.foods || []).join("; "), e.note || "",
     ...SYMPTOMS.map(s => e.sym?.[s.k] ?? ""),
     ...FLAGS.map(f => isLog(e) ? ((e.flags || []).includes(f.k) ? "yes" : "") : ""),
-    e.phase ? phaseOf(e.phase)?.name.toLowerCase() || e.phase : "",
     e.photo ? "yes" : "",
     e.kind === "poop" ? e.type ?? "" : "",
     e.kind === "poop" ? e.color ?? "" : "",
@@ -683,7 +688,7 @@ function exportPDF() {
 
   line("Gut Log", { size: 22, bold: true, color: [107, 31, 45], gap: 2 });
   line(`Food, symptom and poop log · ${range}`, { size: 11, color: [147, 121, 107] });
-  line("Symptoms are self-rated 0 to 5. Energy: higher is better. Every other symptom: higher is worse. Check-ins were logged about 2 hours after eating. Symptoms-only entries were logged on their own, not tied to a meal. Poop types use the Bristol Stool Form Scale: 1 is separate hard lumps, 4 is smooth and soft, 7 is watery. Cycle phase is noted on the day it changed; for patterns, it carries forward to the following days.", { size: 10, color: [147, 121, 107], gap: 14 });
+  line("Symptoms are self-rated 0 to 5. Energy: higher is better. Every other symptom: higher is worse. Check-ins were logged about 2 hours after eating. Symptoms-only entries were logged on their own, not tied to a meal. Poop types use the Bristol Stool Form Scale: 1 is separate hard lumps, 4 is smooth and soft, 7 is watery.", { size: 10, color: [147, 121, 107], gap: 14 });
   const poops = list.filter(e => e.kind === "poop");
   if (poops.length) {
     const days = new Set(poops.map(e => dayKey(e.ts))).size;
@@ -772,12 +777,6 @@ document.addEventListener("click", async ev => {
 
   if (act === "go") return go(b.dataset.view, b.dataset.mode);
   if (act === "edit") return go("log", null, b.dataset.id);
-  if (act === "phase") {
-    const d = state.draft;
-    d.phase = d.phase === b.dataset.k ? null : b.dataset.k;
-    document.querySelectorAll("[data-act=phase]").forEach(x => x.classList.toggle("on", x.dataset.k === d.phase));
-    return;
-  }
   if (act === "add-sym") return addSymptom();
   if (act === "ptype" || act === "pcolor" || act === "pextra") {
     const d = state.draft;
@@ -871,7 +870,15 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && state.view === "home") render();
 });
 
+// Remember which days are open, so editing an entry brings you back to the same view.
+document.addEventListener("toggle", ev => {
+  const d = ev.target;
+  if (!d.matches?.("details.day")) return;
+  d.open ? state.openDays.add(d.dataset.day) : state.openDays.delete(d.dataset.day);
+}, true);
+
 (async function init() {
+  state.openDays.add(dayKey(Date.now()));
   try { setCustom(await DB.getSetting("customSymptoms")); } catch {}
   try { state.entries = await migrate(await DB.all()); } catch { toast("Couldn't open storage"); }
   render();
