@@ -269,3 +269,16 @@ textarea:focus { outline: none; border-color: var(--pink); }
 .checkin .scale { margin-bottom: 8px; }
 .checkin .scale-row button { min-height: 44px; }
 .checkin .scale-top { margin-bottom: 4px; }
+
+/* ---------- Date and time picker ---------- */
+.when-field .when { justify-content: space-between; background: var(--card); border-radius: 18px; padding: 8px 8px 8px 16px; }
+.when-field .when input { border: 0; background: var(--cream); min-width: 0; flex: 0 1 auto; }
+
+/* ---------- Editing ---------- */
+button.entry { width: 100%; text-align: left; font: inherit; color: inherit; }
+button.entry:active { filter: brightness(0.97); }
+.entry .time .edit-hint { color: var(--ink-soft); font-size: 13px; text-decoration: underline; }
+.del-entry { display: block; width: 100%; margin-top: 6px; color: #9a3a33; }
+
+/* ---------- Cycle phase ---------- */
+.chip.phase.on { background: var(--pink-soft); border-color: var(--pink); color: var(--ink-deep); }
